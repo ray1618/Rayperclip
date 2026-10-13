@@ -1,0 +1,25 @@
+[package]
+name = "rayperclip"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+chrono = "0.4.45"
+core-foundation = "0.10.1"
+core-graphics = "0.25.0"
+directories = "6.0.0"
+eframe = { version = "0.35.0", default-features = false, features = ["default_fonts", "glow"] }
+global-hotkey = "0.8.0"
+objc2 = "0.6.5"
+objc2-app-kit = "0.3.2"
+objc2-foundation = "0.3.2"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.21"
+toml = "1.1.8"
+tray-icon = "0.26.1"
+winit = { version = "0.30.13", default-features = false }
+
+[dev-dependencies]
+tempfile = "3.27.0"
