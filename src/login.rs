@@ -65,6 +65,34 @@ pub fn is_enabled(agents_dir: &Path) -> bool {
     agents_dir.join(plist_name()).is_file()
 }
 
+fn xml_unescape(s: &str) -> String {
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+}
+
+/// Program path stored in an installed LaunchAgent, if any.
+pub fn program_path(agents_dir: &Path) -> Option<PathBuf> {
+    let text = std::fs::read_to_string(agents_dir.join(plist_name())).ok()?;
+    let after = &text[text.find("<key>ProgramArguments</key>")?..];
+    let start = after.find("<string>")? + "<string>".len();
+    let end = start + after[start..].find("</string>")?;
+    Some(PathBuf::from(xml_unescape(&after[start..end])))
+}
+
+/// Whether the LaunchAgent must be (re)written or removed so it matches the
+/// desired state. An enabled agent pointing at another executable (e.g. an
+/// old build after moving the app) needs to be rewritten.
+pub fn needs_update(agents_dir: &Path, executable: &Path, enabled: bool) -> bool {
+    match (is_enabled(agents_dir), enabled) {
+        (false, false) => false,
+        (true, false) | (false, true) => true,
+        (true, true) => program_path(agents_dir).as_deref() != Some(executable),
+    }
+}
+
 /// Enable or disable as requested.
 pub fn apply(agents_dir: &Path, executable: &Path, enabled: bool) -> std::io::Result<()> {
     if enabled {
@@ -105,6 +133,38 @@ mod tests {
         disable(&agents).unwrap();
         assert!(!is_enabled(&agents));
         disable(&agents).unwrap(); // idempotent
+    }
+
+    #[test]
+    fn program_path_reads_installed_agent() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(program_path(dir.path()), None);
+        let exe = Path::new("/Users/me/Applications/R & D.app/Contents/MacOS/R");
+        enable(dir.path(), exe).unwrap();
+        assert_eq!(program_path(dir.path()).as_deref(), Some(exe));
+    }
+
+    #[test]
+    fn stale_program_path_needs_update() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = Path::new("/repo/target/release/rayperclip");
+        let new = Path::new("/Users/me/Applications/Rayperclip.app/Contents/MacOS/Rayperclip");
+        enable(dir.path(), old).unwrap();
+        assert!(needs_update(dir.path(), new, true));
+        apply(dir.path(), new, true).unwrap();
+        assert!(!needs_update(dir.path(), new, true));
+        assert_eq!(program_path(dir.path()).as_deref(), Some(new));
+    }
+
+    #[test]
+    fn needs_update_for_on_off_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = Path::new("/x");
+        assert!(!needs_update(dir.path(), exe, false));
+        assert!(needs_update(dir.path(), exe, true));
+        enable(dir.path(), exe).unwrap();
+        assert!(!needs_update(dir.path(), exe, true));
+        assert!(needs_update(dir.path(), exe, false));
     }
 
     #[test]

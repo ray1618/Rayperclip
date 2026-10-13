@@ -37,7 +37,7 @@ cargo run
 cargo run --release
 ```
 
-Rayperclip verschijnt als 📋-icoon in de menubalk; er is geen Dock-icoon. Afsluiten doe je via **Quit Rayperclip** in het menubalkmenu.
+Rayperclip verschijnt als paperclip-icoon 📎 in de menubalk; er is geen Dock-icoon. Afsluiten doe je via **Quit Rayperclip** in het menubalkmenu.
 
 ### 🔓 Toegankelijkheid (voor direct plakken)
 
@@ -153,6 +153,12 @@ src/
 └── ui.rs            # zoekvenster (egui)
 tests/
 └── pipeline.rs      # end-to-end: kopiëren → opslaan → zoeken → plakken → herstart
+scripts/
+├── bundle.sh        # build + .app-bundle + ondertekenen (+ installeren)
+└── render-icon.swift  # app-icoon tekenen (🖇️ op blauwe gradient)
+assets/
+├── AppIcon.png      # app-icoon 1024×1024
+└── AppIcon.icns     # app-icoon voor de bundle
 ```
 
 🧩 **Ontwerpkeuze:** alles wat macOS nodig heeft zit achter traits (`Clipboard`, `PasteBackend`) of in `macos.rs`/`app.rs`/`ui.rs`. De rest is gewone Rust-code die je zonder macOS-rechten kunt testen.
@@ -175,7 +181,7 @@ tests/
 ## 🧪 Testen
 
 ```sh
-cargo test                       # alle tests (96)
+cargo test                       # alle tests (102)
 cargo test --lib                 # alleen unittests van de bibliotheek
 cargo test --test pipeline       # alleen de integratietests
 cargo test store::               # filteren op module/naam
@@ -207,33 +213,42 @@ cargo build              # debug  → target/debug/rayperclip
 cargo build --release    # release → target/release/rayperclip
 ```
 
-### 🍏 Als `.app` bundelen (optioneel)
+### 🍏 Als `.app` bundelen
 
-Een echte app-bundle heeft een vaste identiteit, zodat de Accessibility-toestemming na een update niet steeds opnieuw nodig is. Een minimale handmatige bundle:
+Met `scripts/bundle.sh` maak je in één commando een ondertekende `Rayperclip.app` met app-icoon:
 
 ```sh
-cargo build --release
-APP=Rayperclip.app
-mkdir -p "$APP/Contents/MacOS"
-cp target/release/rayperclip "$APP/Contents/MacOS/Rayperclip"
-cat > "$APP/Contents/Info.plist" <<'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>CFBundleName</key><string>Rayperclip</string>
-  <key>CFBundleIdentifier</key><string>nl.ray.rayperclip</string>
-  <key>CFBundleExecutable</key><string>Rayperclip</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
-  <key>LSUIElement</key><true/>
-</dict></plist>
-EOF
-codesign --force --deep --sign - "$APP"   # ad-hoc ondertekening
+./scripts/bundle.sh             # release-build → dist/Rayperclip.app
+./scripts/bundle.sh --install   # + installeren in ~/Applications
+./scripts/bundle.sh --open      # + starten
+./scripts/bundle.sh --icon      # app-icoon opnieuw genereren
+./scripts/bundle.sh --install --open   # opties zijn te combineren
 ```
 
-Daarna kun je `Rayperclip.app` naar `/Applications` slepen. Zet **Start at Login** daarna opnieuw aan, zodat de LaunchAgent naar het nieuwe pad wijst.
+Wat het script doet:
+1. 🎨 maakt `assets/AppIcon.icns` (alleen als die ontbreekt of bij `--icon`)
+2. 🦀 `cargo build --release` (Apple Silicon)
+3. 📦 bouwt `dist/Rayperclip.app` met `Info.plist` (versie uit `Cargo.toml`, build-nummer = tijdstempel, `LSUIElement` = geen Dock-icoon)
+4. ✍️ ondertekent de app (ad-hoc) en controleert de handtekening
+5. 🚚 bij `--install`: stopt een draaiende Rayperclip en vervangt `~/Applications/Rayperclip.app`
 
-> 💡 [`cargo-bundle`](https://github.com/burtonageo/cargo-bundle) kan dit ook automatisch doen.
+| Variabele | Standaard | Betekenis |
+|---|---|---|
+| `SIGN_IDENTITY` | `-` (ad-hoc) | eigen certificaat, bijv. `"Developer ID Application: Naam (TEAMID)"` |
+| `INSTALL_DIR` | `~/Applications` | installatiemap voor `--install` |
+
+```sh
+SIGN_IDENTITY="Developer ID Application: Ray (ABCDE12345)" ./scripts/bundle.sh --install
+```
+
+> 💡 Met een vaste ondertekenidentiteit (een echt certificaat) onthoudt macOS de Accessibility-toestemming ook na updates. Bij ad-hoc ondertekening moet je na elke nieuwe build de oude regel bij **Toegankelijkheid** verwijderen en opnieuw toevoegen.
+
+> 🚀 Stond **Start at Login** al aan vanuit een andere build (bijv. `target/release`)? Na de eerste start van de geïnstalleerde app wijst het login-item automatisch naar `~/Applications/Rayperclip.app`.
+
+### 🎨 Iconen
+
+- **App-icoon:** de emoji 🖇️ op een afgerond vierkant met een blauwe gradient, getekend door `scripts/render-icon.swift` (AppKit). Kleuren, emoji en grootte staan als constanten bovenin het script; pas ze aan en draai `./scripts/bundle.sh --icon`.
+- **Menubalkicoon:** een enkele schuine paperclip, in Rust getekend (`presentation::tray_icon_rgba`) als *template image*. macOS kleurt hem daardoor automatisch zwart of wit voor een lichte of donkere menubalk.
 
 ---
 
@@ -265,6 +280,7 @@ sqlite3 ~/Library/Application\ Support/nl.ray.Rayperclip/clips.sqlite \
 | 🐞 Nieuwe kopieën verschijnen niet | Start met `RAYPERCLIP_DEBUG=1 cargo run` en kijk naar de `poll:`-regels. Staat **Record Clipboard** aan? |
 | ⌨️ Plakken gebeurt niet automatisch | Geef Accessibility-toestemming (zie hierboven); na een rebuild opnieuw. Staat **Paste Directly** aan? |
 | 🎹 Sneltoets werkt niet | Controleer de melding onderin het venster; mogelijk gebruikt een andere app dezelfde combinatie. Kies een andere in `settings.toml` en kies **Reload Settings**. |
+| 🧳 `bundle.sh` faalt op het icoon | Het icoon wordt met `swift` getekend; installeer de Command Line Tools (`xcode-select --install`). |
 | 📄 Instellingen worden niet geladen | Ongeldige TOML wordt gemeld en de standaardwaarden worden gebruikt. Controleer de syntax. |
 | 🪟 Venster weg | Open het via het menubalkmenu of `⇧⌘V`; het rode sluitknopje verbergt het venster alleen. |
 

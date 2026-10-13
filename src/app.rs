@@ -504,7 +504,9 @@ impl Core {
         let (Some(dir), Ok(exe)) = (login::launch_agents_dir(), std::env::current_exe()) else {
             return;
         };
-        if login::is_enabled(&dir) != self.settings.start_at_login
+        // Also rewrites an enabled agent that still points at an old binary,
+        // e.g. after moving the app to ~/Applications.
+        if login::needs_update(&dir, &exe, self.settings.start_at_login)
             && let Err(e) = login::apply(&dir, &exe, self.settings.start_at_login)
         {
             self.set_notice(format!("Could not update login item: {e}"));
@@ -568,7 +570,7 @@ impl Core {
     // -- tray -----------------------------------------------------------------
 
     fn create_tray(&mut self) -> Result<()> {
-        let size = 36;
+        let size = 44;
         let icon = Icon::from_rgba(presentation::tray_icon_rgba(size), size, size)?;
         let (menu, actions) = self.build_menu(true);
         self.tray_actions = actions;
